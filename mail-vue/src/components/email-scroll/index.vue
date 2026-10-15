@@ -83,7 +83,9 @@
                   <div class="email-text">
                     <span class="email-subject" :style="(item.unread === EmailUnreadEnum.UNREAD && showUnread)  ? 'font-weight: bold' : ''">
                       <div class="unread" v-if="!isMobile && (item.unread === EmailUnreadEnum.UNREAD && showUnread) "/>
-                      <span v-if="item.code" class="code-tag" @click.stop="copyCode(item.code)">[{{ t('codeLabel') }}{{ item.code }}]</span>
+                      <span v-if="item.code" class="code-tag" @click.stop="copyCode(item.code)">
+                        <span>{{ t('codeLabel') }}</span><span class="code-value">{{ item.code }}</span>
+                      </span>
                       <span class="subject-text">
                         <slot name="subject" :email="item" >
                           {{ item.subject || '\u200B' }}
@@ -103,7 +105,7 @@
                       <span>
                         <Icon icon="mdi-light:email" width="20" height="20"/>
                       </span>
-                      <span>{{ item.type === 0 ? item.toEmail : item.sendEmail }}</span>
+                      <span>{{ item.type === 0 ? (item.displayToEmail || item.toEmail) : item.sendEmail }}</span>
                     </div>
                   </div>
                 </div>
@@ -204,7 +206,7 @@
               </div>
             </template>
           </el-dropdown-item>
-          <el-dropdown-item v-if="props.type === 'all-email' " @click="handleSearch('account', rightClickEmail.toEmail)">
+          <el-dropdown-item v-if="props.type === 'all-email' " @click="handleSearch('account', rightClickEmail.displayToEmail || rightClickEmail.toEmail)">
             <template #default>
               <div class="right-dropdown-item">
                 <Icon icon="iconoir:search" width="20" height="20" />
@@ -1168,15 +1170,28 @@ function loadData() {
 
       .code-tag {
         flex: 0 0 auto;
-        max-width: 170px;
-        height: 20px;
-        line-height: 20px;
-        font-size: 14px;
-        color: var(--el-text-color-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 180px;
+        height: 22px;
+        padding: 0 8px;
+        border: 1px solid var(--el-color-primary-light-5);
+        border-radius: 999px;
+        background: var(--el-color-primary-light-9);
+        color: var(--el-color-primary);
+        font-size: 12px;
+        font-weight: 600;
         overflow: hidden;
         white-space: nowrap;
         text-overflow: ellipsis;
         cursor: pointer;
+
+        .code-value {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 13px;
+          letter-spacing: 0.04em;
+        }
       }
 
       .subject-text {

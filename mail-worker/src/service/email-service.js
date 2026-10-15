@@ -23,7 +23,7 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
-import { ALL_EMAIL_DOMAINS_SQL, SHARED_INBOX } from '../utils/domain-filter-utils';
+import { ALL_EMAIL_DOMAINS_SQL, SHARED_INBOX, displayToEmail } from '../utils/domain-filter-utils';
 
 const emailService = {
 
@@ -279,6 +279,14 @@ const emailService = {
 		}
 
 		return conditions;
+	},
+
+	applyAllEmailDisplay(list) {
+		for (const item of list) {
+			item.displayToEmail = item.type === emailConst.type.RECEIVE
+				? displayToEmail(item)
+				: item.toEmail;
+		}
 	},
 
 	async delete(c, params, userId) {
@@ -1030,6 +1038,7 @@ const emailService = {
 		} else {
 			this.applyListText(list);
 		}
+		this.applyAllEmailDisplay(list);
 
 		if (!latestEmail) {
 			latestEmail = {
@@ -1063,6 +1072,7 @@ const emailService = {
 		for (const item of list) {
 			item.listText = this.toListText(item);
 		}
+		this.applyAllEmailDisplay(list);
 		return list;
 	},
 

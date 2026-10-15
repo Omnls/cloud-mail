@@ -87,6 +87,31 @@ function parseRecipientDomains(recipient) {
 }
 
 /**
+ * 统一转收邮件在管理端展示原始收件地址；其他邮件保持实际 toEmail。
+ * recipient 缺失、格式错误或没有有效地址时安全回退。
+ */
+export function displayToEmail({ toEmail, recipient }) {
+	if (normalizeDomain(toEmail) !== SHARED_INBOX) {
+		return toEmail || '';
+	}
+
+	if (typeof recipient !== 'string' || recipient.trim() === '') {
+		return toEmail || '';
+	}
+
+	try {
+		const parsed = JSON.parse(recipient);
+		if (!Array.isArray(parsed)) return toEmail || '';
+		const first = parsed.find(item => {
+			return item && typeof item.address === 'string' && emailToDomain(item.address);
+		});
+		return first ? first.address.trim() : (toEmail || '');
+	} catch (e) {
+		return toEmail || '';
+	}
+}
+
+/**
  * 根据既定分类规则，返回一封邮件归属的所有来源域名（小写、去重）。
  *
  * 规则：
@@ -117,6 +142,7 @@ const domainFilterUtils = {
 	normalizeDomain,
 	emailToDomain,
 	parseRecipientDomains,
+	displayToEmail,
 	classifyDomains
 };
 

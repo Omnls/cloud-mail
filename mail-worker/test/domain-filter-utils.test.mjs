@@ -31,6 +31,19 @@ test('统一入口的 recipient 无效时回退 toEmail，混合脏元素不报�
 	}), ['gmail.com']);
 });
 
+test('管理端展示统一入口的原始收件地址并安全回退', () => {
+	assert.equal(domainFilterUtils.displayToEmail(sharedInboxSample), 'w6930504@gmail.com');
+	assert.equal(domainFilterUtils.displayToEmail({
+		toEmail: 'INBOX@VPASS.CC',
+		recipient: '[null,{"address":" User@GMail.COM "}]'
+	}), 'User@GMail.COM');
+	assert.equal(domainFilterUtils.displayToEmail({
+		toEmail: 'inbox@vpass.cc',
+		recipient: 'bad json'
+	}), 'inbox@vpass.cc');
+	assert.equal(domainFilterUtils.displayToEmail(firstSample), 'iantigravitys-gmail@vpass.cc');
+});
+
 test('域名汇总 SQL 遵守统一入口规则并容忍脏 JSON', () => {
 	const db = new DatabaseSync(':memory:');
 	db.exec('CREATE TABLE email (to_email TEXT NOT NULL, recipient TEXT)');
