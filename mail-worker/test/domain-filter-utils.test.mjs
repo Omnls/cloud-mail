@@ -97,3 +97,41 @@ test('公共取信实现使用统一入口 recipient 精确匹配', () => {
 	assert.equal(source.includes('json_each(${guardedRecipient})'), true);
 	assert.equal(source.includes('trim(${recipientAddress}) COLLATE NOCASE ='), true);
 });
+
+test('管理端邮箱搜索匹配统一 inbox 的原始收件地址并去除前导空格', () => {
+	const db = new DatabaseSync(':memory:');
+	db.exec('CREATE TABLE email (email_id INTEGER PRIMARY KEY, to_email TEXT NOT NULL, send_email TEXT, recipient TEXT)');
+	const insert = db.prepare('INSERT INTO email (email_id, to_email, send_email, recipient) VALUES (?, ?, ?, ?)');
+	insert.run(113, 'inbox@vpass.cc', 'noreply@caiaiu.com', '[{"address":"w6930504@gmail.com"}]');
+	insert.run(114, 'direct@vpass.cc', 'sender@example.com', '[{"address":"w6930504@gmail.com"}]');
+	insert.run(115, 'inbox@vpass.cc', 'sender@example.com', 'bad json');
+
+	const lookupSql = `SELECT email_id FROM email
+		WHERE to_email COLLATE NOCASE LIKE ?
+			OR send_email COLLATE NOCASE LIKE ?
+			OR (lower(trim(to_email)) = ? AND EXISTS (
+				SELECT 1 FROM json_each(CASE
+					WHEN json_valid(recipient) AND json_type(recipient) = 'array' THEN recipient
+					ELSE '[]'
+				END) AS recipient_item
+				WHERE trim(CASE
+					WHEN recipient_item.type = 'object' THEN json_extract(recipient_item.value, '$.address')
+					ELSE NULL
+				END) COLLATE NOCASE LIKE ?
+			))
+		ORDER BY email_id`;
+	const lookup = value => {
+		const search = value.trim() + '%';
+		return db.prepare(lookupSql).all(search, search, domainFilterUtils.SHARED_INBOX, search).map(row => row.email_id);
+	};
+
+	assert.deepEqual(lookup(' w6930504@gmail.com'), [113]);
+	assert.deepEqual(lookup('W6930504@GMAIL.COM'), [113]);
+	assert.deepEqual(lookup('direct@vpass.cc'), [114]);
+	db.close();
+
+	const servicePath = fileURLToPath(new URL('../src/service/email-service.js', import.meta.url));
+	const source = readFileSync(servicePath, 'utf8');
+	assert.equal(source.includes('const searchEmail = String(accountEmail).trim()'), true);
+	assert.equal(source.includes('trim(${recipientAddress}) COLLATE NOCASE LIKE'), true);
+});

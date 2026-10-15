@@ -242,12 +242,28 @@ const emailService = {
 		}
 
 		if (accountEmail) {
-			conditions.push(
-				or(
-					sql`${email.toEmail} COLLATE NOCASE LIKE ${accountEmail + '%'}`,
-					sql`${email.sendEmail} COLLATE NOCASE LIKE ${accountEmail + '%'}`,
-				)
-			);
+			const searchEmail = String(accountEmail).trim();
+			if (searchEmail) {
+				const guardedRecipient = sql`CASE
+					WHEN json_valid(${email.recipient}) AND json_type(${email.recipient}) = 'array' THEN ${email.recipient}
+					ELSE '[]'
+				END`;
+				const recipientAddress = sql`CASE
+					WHEN recipient_item.type = 'object' THEN json_extract(recipient_item.value, '$.address')
+					ELSE NULL
+				END`;
+
+				conditions.push(
+					or(
+						sql`${email.toEmail} COLLATE NOCASE LIKE ${searchEmail + '%'}`,
+						sql`${email.sendEmail} COLLATE NOCASE LIKE ${searchEmail + '%'}`,
+						sql`lower(trim(${email.toEmail})) = ${SHARED_INBOX} AND EXISTS (
+							SELECT 1 FROM json_each(${guardedRecipient}) AS recipient_item
+							WHERE trim(${recipientAddress}) COLLATE NOCASE LIKE ${searchEmail + '%'}
+						)`
+					)
+				);
+			}
 		}
 
 		if (name) {
