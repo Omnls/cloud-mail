@@ -23,6 +23,7 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
+import { ALL_EMAIL_DOMAINS_SQL, SHARED_INBOX } from '../utils/domain-filter-utils';
 
 const emailService = {
 
@@ -171,8 +172,54 @@ const emailService = {
 		return conditions;
 	},
 
-	allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, type, timeSort, withCursor = true }) {
+	// 根据既定分类规则生成「来源域名 = domain」的 SQL 条件（大小写不敏感精确匹配）。
+	// inbox@vpass.cc 为共享收件箱：有有效 recipient 域名时用 recipient，否则回退 toEmail 域名；
+	// 其他 toEmail 直接按 toEmail 域名分类。绝不使用 sendEmail 或 userEmail。
+	domainFilterCondition(domain) {
+		if (domain === undefined || domain === null) {
+			return undefined;
+		}
+		const d = String(domain).trim().toLowerCase();
+		if (!d) {
+			return undefined;
+		}
+
+		const toDomain = sql`lower(substr(trim(${email.toEmail}), instr(trim(${email.toEmail}), '@') + 1))`;
+
+		const guardedRecipient = sql`CASE
+			WHEN json_valid(${email.recipient}) AND json_type(${email.recipient}) = 'array' THEN ${email.recipient}
+			ELSE '[]'
+		END`;
+		const recipientAddress = sql`CASE
+			WHEN recipient_item.type = 'object' THEN json_extract(recipient_item.value, '$.address')
+			ELSE NULL
+		END`;
+		const recipientDomain = sql`lower(substr(trim(${recipientAddress}), instr(trim(${recipientAddress}), '@') + 1))`;
+
+		const hasValidRecipient = sql`EXISTS (
+			SELECT 1 FROM json_each(${guardedRecipient}) AS recipient_item
+			WHERE instr(trim(${recipientAddress}), '@') > 0
+				AND length(${recipientDomain}) > 0
+		)`;
+
+		const recipientMatches = sql`EXISTS (
+			SELECT 1 FROM json_each(${guardedRecipient}) AS recipient_item
+			WHERE ${recipientDomain} = ${d}
+		)`;
+
+		return sql`(CASE WHEN lower(trim(${email.toEmail})) = ${SHARED_INBOX}
+			THEN (CASE WHEN ${hasValidRecipient} THEN (${recipientMatches}) ELSE ${toDomain} = ${d} END)
+			ELSE ${toDomain} = ${d}
+		END) = 1`;
+	},
+
+	allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, domain, type, timeSort, withCursor = true }) {
 		const conditions = [];
+
+		const domainCondition = this.domainFilterCondition(domain);
+		if (domainCondition) {
+			conditions.push(domainCondition);
+		}
 
 		if (type === 'send') {
 			conditions.push(eq(email.type, emailConst.type.SEND));
@@ -897,7 +944,7 @@ const emailService = {
 
 	async allList(c, params) {
 
-		let { emailId, size, name, subject, accountEmail, userEmail, type, timeSort, full } = params;
+		let { emailId, size, name, subject, accountEmail, userEmail, domain, type, timeSort, full } = params;
 
 		size = Number(size);
 		emailId = Number(emailId) || 0;
@@ -922,8 +969,8 @@ const emailService = {
 
 		full = full === 1;
 
-		const filters = this.allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, type, timeSort });
-		const countFilters = this.allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, type, timeSort, withCursor: false });
+		const filters = this.allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, domain, type, timeSort });
+		const countFilters = this.allEmailListFilters({ emailId, name, subject, accountEmail, userEmail, domain, type, timeSort, withCursor: false });
 		const columns = full ? emailListColumns : emailBriefColumns;
 
 		const query = orm(c).select({ ...columns, userEmail: user.email })
@@ -949,12 +996,15 @@ const emailService = {
 
 		const listQuery = query.limit(size).all();
 		const totalQuery = queryCount.get();
+		const latestConditions = [eq(email.type, emailConst.type.RECEIVE)];
+		const domainCondition = this.domainFilterCondition(domain);
+		if (domainCondition) latestConditions.push(domainCondition);
 		const latestEmailQuery = orm(c).select({
 			emailId: email.emailId,
 			accountId: email.accountId,
 			userId: email.userId,
 		}).from(email)
-			.where(eq(email.type, emailConst.type.RECEIVE))
+			.where(and(...latestConditions))
 			.orderBy(desc(email.emailId)).limit(1).get();
 
 		let [list, totalRow, latestEmail] = await Promise.all([listQuery, totalQuery, latestEmailQuery]);
@@ -978,15 +1028,18 @@ const emailService = {
 
 	async allEmailLatest(c, params) {
 
-		const { emailId } = params;
+		const { emailId, domain } = params;
+
+		const conditions = [
+			gt(email.emailId, emailId),
+			eq(email.type, emailConst.type.RECEIVE)
+		];
+		const domainCondition = this.domainFilterCondition(domain);
+		if (domainCondition) conditions.push(domainCondition);
 
 		let list = await orm(c).select({ ...emailListColumns, userEmail: user.email }).from(email)
 			.leftJoin(user, eq(email.userId, user.userId))
-			.where(
-				and(
-					gt(email.emailId, emailId),
-					eq(email.type, emailConst.type.RECEIVE)
-				))
+			.where(and(...conditions))
 			.orderBy(desc(email.emailId))
 			.limit(20);
 
@@ -995,6 +1048,15 @@ const emailService = {
 			item.listText = this.toListText(item);
 		}
 		return list;
+	},
+
+	// 按既定分类规则（见 domainFilterCondition）从现有邮件行汇总去重的来源域名列表。
+	// inbox@vpass.cc 且有有效 recipient 时取各 recipient 域名，否则回退 toEmail 域名；其他按 toEmail 域名。
+	async allEmailDomains(c) {
+
+		const res = await c.env.db.prepare(ALL_EMAIL_DOMAINS_SQL).all();
+		const rows = res?.results || [];
+		return rows.map(row => row.domain).filter(Boolean);
 	},
 
 	async emailAddAtt(c, list) {

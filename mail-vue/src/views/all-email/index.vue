@@ -1,5 +1,11 @@
 <template>
   <div class="email-list-box">
+    <domainPanel
+        class="domain-panel-desktop"
+        v-model="params.domain"
+        :domains="domains"
+        @change="domainChange"
+    />
     <emailScroll ref="sysEmailScroll"
                  :get-emailList="getEmailList"
                  :email-delete="allEmailDelete"
@@ -51,6 +57,16 @@
           <el-option key="4" :label="$t('selectDeleted')" value="delete"/>
           <el-option key="4" :label="$t('noRecipientTitle')" value="noone"/>
         </el-select>
+        <el-select
+            v-model="params.domain"
+            class="domain-select-mobile"
+            :placeholder="$t('allDomains')"
+            clearable
+            @change="domainChange"
+        >
+          <el-option :label="$t('allDomains')" :value="null"/>
+          <el-option v-for="d in domains" :key="d" :label="d" :value="d"/>
+        </el-select>
         <Icon class="icon" icon="iconoir:search" @click="search" width="20" height="20"/>
         <Icon class="icon" @click="changeTimeSort" icon="material-symbols-light:timer-arrow-down-outline"
               v-if="params.timeSort === 0" width="28" height="28"/>
@@ -90,13 +106,15 @@
 <script setup>
 import {starAdd, starCancel} from "@/request/star.js";
 import emailScroll from "@/components/email-scroll/index.vue"
+import domainPanel from "@/views/all-email/domain-panel.vue"
 import {computed, defineOptions, reactive, ref, watch, onMounted} from "vue";
 import {useEmailStore} from "@/store/email.js";
 import {
   allEmailList,
   allEmailDelete,
   allEmailBatchDelete,
-  allEmailLatest
+  allEmailLatest,
+  allEmailDomains
 } from "@/request/all-email.js";
 import {Icon} from "@iconify/vue";
 import router from "@/router/index.js";
@@ -122,6 +140,7 @@ const showBathDelete = ref(false)
 const clearLoading = ref(false)
 
 onMounted(() => {
+  loadDomains();
   latest();
 })
 
@@ -136,8 +155,21 @@ const params = reactive({
   accountEmail: null,
   name: null,
   subject: null,
+  domain: null,
   searchType: 'name'
 })
+
+const domains = ref([])
+
+function loadDomains() {
+  allEmailDomains().then(list => {
+    domains.value = Array.isArray(list) ? list : []
+  }).catch(() => {})
+}
+
+function domainChange() {
+  sysEmailScroll.value.refreshList();
+}
 
 const clearParams = reactive({
   subject: '',
@@ -179,6 +211,7 @@ if (paramsStar) {
   params.timeSort = locaParams.timeSort
   params.status = locaParams.status
   params.searchType = locaParams.searchType
+  params.domain = locaParams.domain ?? null
 }
 
 watch(() => params, () => {
@@ -243,6 +276,7 @@ function refreshBefore() {
   params.accountEmail = null
   params.name = null
   params.subject = null
+  params.domain = null
   params.searchType = 'name'
 }
 
@@ -324,7 +358,8 @@ async function latest() {
     try {
 
       const curTimeSort = params.timeSort
-      let list = await allEmailLatest(latestId)
+      const curDomain = params.domain
+      let list = await allEmailLatest(latestId, curDomain)
 
       if (list.length === 0) {
         continue
@@ -336,6 +371,11 @@ async function latest() {
 
       // 确保回来之后条件没变
       if (params.timeSort !== curTimeSort) {
+        continue
+      }
+
+      // 域名筛选在等待期间变化则丢弃本次结果
+      if (params.domain !== curDomain) {
         continue
       }
 
@@ -399,6 +439,37 @@ async function latest() {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  display: flex;
+}
+
+.email-list-box > :deep(.email-container) {
+  flex: 1;
+  min-width: 0;
+}
+
+.domain-panel-desktop {
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .domain-panel-desktop {
+    display: none;
+  }
+}
+
+.domain-select-mobile {
+  margin-bottom: 2px;
+  width: 110px;
+
+  :deep(.el-select__wrapper) {
+    min-height: 28px;
+  }
+}
+
+@media (min-width: 768px) {
+  .domain-select-mobile {
+    display: none;
+  }
 }
 
 

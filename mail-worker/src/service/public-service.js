@@ -1,7 +1,7 @@
 import BizError from '../error/biz-error';
 import orm from '../entity/orm';
 import { v4 as uuidv4 } from 'uuid';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import saltHashUtils from '../utils/crypto-utils';
 import cryptoUtils from '../utils/crypto-utils';
 import emailUtils from '../utils/email-utils';
@@ -14,6 +14,7 @@ import { isDel, roleConst } from '../const/entity-const';
 import email from '../entity/email';
 import userService from './user-service';
 import KvConst from '../const/kv-const';
+import { SHARED_INBOX } from '../utils/domain-filter-utils';
 
 const publicService = {
 
@@ -51,7 +52,22 @@ const publicService = {
 		let conditions = []
 
 		if (toEmail) {
-			conditions.push(sql`${email.toEmail} COLLATE NOCASE LIKE ${toEmail}`)
+			const guardedRecipient = sql`CASE
+				WHEN json_valid(${email.recipient}) AND json_type(${email.recipient}) = 'array' THEN ${email.recipient}
+				ELSE '[]'
+			END`;
+			const recipientAddress = sql`CASE
+				WHEN recipient_item.type = 'object' THEN json_extract(recipient_item.value, '$.address')
+				ELSE NULL
+			END`;
+
+			conditions.push(or(
+				sql`${email.toEmail} COLLATE NOCASE LIKE ${toEmail}`,
+				sql`lower(trim(${email.toEmail})) = ${SHARED_INBOX} AND EXISTS (
+					SELECT 1 FROM json_each(${guardedRecipient}) AS recipient_item
+					WHERE trim(${recipientAddress}) COLLATE NOCASE = ${String(toEmail).trim()}
+				)`
+			))
 		}
 
 		if (sendEmail) {

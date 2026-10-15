@@ -203,6 +203,7 @@ const en = {
     ruleEmailsInputDesc: 'Separate multiple email addresses with commas',
     resendTokenList: 'Token List',
     domain: 'Domain',
+    allDomains: 'All Domains',
     optional: 'Optional',
     subjectInputDesc: 'Please enter the email subject',
     changeUserName: 'Change Username',

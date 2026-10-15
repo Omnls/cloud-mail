@@ -203,6 +203,7 @@ const zh = {
     ruleEmailsInputDesc: '多个邮箱用, 分开',
     resendTokenList: 'Token 列表',
     domain: '域名',
+    allDomains: '全部域名',
     optional: '可选',
     subjectInputDesc: '请输入邮件主题',
     changeUserName: '修改用户名',
